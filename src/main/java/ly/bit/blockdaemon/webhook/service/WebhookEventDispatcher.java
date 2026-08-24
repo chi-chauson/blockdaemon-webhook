@@ -43,9 +43,16 @@ public class WebhookEventDispatcher {
     }
 
     private void handleConfirmedTx(WebhookEvent event) {
-        parse(event, ConfirmedTxData.class).ifPresent(data ->
-                log.info("[confirmed_tx] txHash={} from={} to={} value={} block={}",
-                        data.txHash(), data.from(), data.to(), data.value(), data.blockNumber()));
+        parse(event, ConfirmedTxData.class).ifPresent(data -> {
+            log.info("[confirmed_tx] txId={} status={} block={} transfers={}",
+                    data.txId(), data.status(), data.blockNumber(),
+                    data.transfers() != null ? data.transfers().size() : 0);
+            if (data.transfers() != null) {
+                data.transfers().forEach(t ->
+                        log.info("  transfer asset={} from={} to={} value={}",
+                                t.asset(), t.from(), t.to(), t.value()));
+            }
+        });
     }
 
     private void handleTxTrace(WebhookEvent event) {
@@ -55,15 +62,22 @@ public class WebhookEventDispatcher {
     }
 
     private void handleTxLog(WebhookEvent event) {
-        parse(event, TxLogData.class).ifPresent(data ->
-                log.info("[tx_log] contract={} topics={} txHash={} block={}",
-                        data.address(), data.topics(), data.txHash(), data.blockNumber()));
+        parse(event, TxLogData.class).ifPresent(data -> {
+            log.info("[tx_log] txId={} status={} block={} transfers={}",
+                    data.txId(), data.status(), data.blockNumber(),
+                    data.transfers() != null ? data.transfers().size() : 0);
+            if (data.transfers() != null) {
+                data.transfers().forEach(t ->
+                        log.info("  token transfer asset={} from={} to={} value={}",
+                                t.asset(), t.from(), t.to(), t.value()));
+            }
+        });
     }
 
     private void handleConfirmedBalance(WebhookEvent event) {
         parse(event, ConfirmedBalanceData.class).ifPresent(data ->
-                log.info("[confirmed_balance] address={} balance={} block={}",
-                        data.address(), data.balance(), data.blockNumber()));
+                log.info("[confirmed_balance] address={} asset={} value={} block={}",
+                        data.address(), data.asset(), data.value(), data.blockNumber()));
     }
 
     private void handleStakingStatus(WebhookEvent event) {

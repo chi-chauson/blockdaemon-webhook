@@ -8,22 +8,30 @@ import java.util.List;
 /**
  * Data for {@code unified_confirmed_tx_log} events.
  *
- * Represents a smart contract event log emitted in a confirmed transaction
- * (e.g. ERC-20 Transfer, Approval). EVM chains only.
+ * Represents a token transfer event (e.g. ERC-20 Transfer) extracted from
+ * a confirmed transaction's logs. The structure mirrors {@link ConfirmedTxData}
+ * but {@code transfers[].asset} is a token contract address rather than "native".
  *
- * The first topic is the keccak256 hash of the event signature,
- * e.g. Transfer(address,address,uint256).
+ * Both {@code tx_id} and {@code tx_hash} are present and refer to the same transaction.
  *
- * Note: Schema is best-effort — refine from recorded NDJSON payloads.
+ * Schema verified against real Blockdaemon payloads.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TxLogData(
+        @JsonProperty("tx_id") String txId,
         @JsonProperty("tx_hash") String txHash,
-        String address,
-        List<String> topics,
-        String data,
-        @JsonProperty("log_index") int logIndex,
+        String status,
         @JsonProperty("block_hash") String blockHash,
         @JsonProperty("block_number") long blockNumber,
-        long timestamp
-) {}
+        long timestamp,
+        List<Transfer> transfers
+) {
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Transfer(
+            String asset,
+            String from,
+            String to,
+            long value
+    ) {}
+}

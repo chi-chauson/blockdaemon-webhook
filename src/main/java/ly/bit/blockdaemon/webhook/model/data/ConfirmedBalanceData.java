@@ -9,14 +9,17 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * Emitted when the balance of a monitored address changes after a confirmed
  * transaction. Available on all chains.
  *
- * Note: Schema is best-effort — refine from recorded NDJSON payloads.
+ * Note: {@code asset} is "native" for the chain's native token (e.g. ETH).
+ * {@code value} is the new balance, not the delta.
+ *
+ * Schema verified against real Blockdaemon payloads.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ConfirmedBalanceData(
         String address,
-        String balance,
-        @JsonProperty("tx_hash") String txHash,
+        String asset,
+        long value,
         @JsonProperty("block_hash") String blockHash,
         @JsonProperty("block_number") long blockNumber,
-        long timestamp
+        @JsonProperty("block_timestamp") long blockTimestamp
 ) {}
