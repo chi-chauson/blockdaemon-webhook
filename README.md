@@ -8,6 +8,98 @@ A Spring Boot application that listens for Blockdaemon address activity webhook 
 
 - Java 26 (JVM) — compiled to Java 21 bytecode due to Spring Boot 3.5.3's ASM not yet supporting Java 26 class files
 - Maven 3.x
+- GNU Make (optional, for the Makefile shortcuts)
+
+---
+
+## Credentials Setup
+
+This project uses a `.env` file to keep secrets out of source control.
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in:
+
+| Variable | Description |
+|---|---|
+| `BLOCKDAEMON_API_KEY` | Your Blockdaemon API key (JSON-RPC → API Keys in the dashboard) |
+| `BLOCKDAEMON_WEBHOOK_SECRET` | A secret string you choose — used for CRC challenge and payload verification |
+| `TUNNEL_URL` | Your Cloudflare tunnel URL (changes each time cloudflared restarts) |
+| `TARGET_ID` | Assigned by Blockdaemon after `make create-target` |
+| `VARIABLE_ID` | Assigned by Blockdaemon after `make create-variable` |
+| `RULE_ID` | Assigned by Blockdaemon after `make create-rule` |
+
+The app reads `BLOCKDAEMON_WEBHOOK_SECRET` as an environment variable at startup. Export it before running:
+
+```bash
+export BLOCKDAEMON_WEBHOOK_SECRET=your_webhook_secret_here
+mvn spring-boot:run
+```
+
+Or set it in your IDE's run configuration.
+
+---
+
+## Using Make
+
+If you prefer not to type curl commands, a `Makefile` is included. All IDs and credentials are read from `.env` automatically.
+
+```bash
+make help          # show all available commands
+```
+
+### App & tunnel
+
+```bash
+make run           # start the Spring Boot app
+make tunnel        # start the Cloudflare tunnel (separate terminal)
+```
+
+### Setup
+
+```bash
+make verify-key              # verify API key works for streaming
+make create-target           # register the webhook endpoint (set TUNNEL_URL in .env first)
+make create-variable         # create an address filter variable
+make create-rule             # create the rule (set TARGET_ID and VARIABLE_ID in .env first)
+```
+
+### Addresses
+
+```bash
+make list-addresses          # list monitored addresses
+make add-vitalik             # add Vitalik's address for testing
+make add-usdc                # add USDC contract for high-volume testing
+make add-address ADDRESS=0x… # add any address
+make remove-address VALUE_ID=… # remove by value id
+```
+
+### Chain events
+
+```bash
+make add-block-event         # subscribe to block events
+make add-reorg-event         # subscribe to reorg events
+make create-chain-variable   # create an event_type variable
+```
+
+### List & cleanup
+
+```bash
+make list-rules              # list all rules
+make list-variables          # list all variables
+make list-targets            # list all targets
+make cleanup                 # delete rule → variable → target in safe order
+```
+
+### Recorded events
+
+```bash
+make event-count             # count recorded events by type
+```
+
+> After each `create-*` command, save the returned `id` into `.env` (`TARGET_ID`, `VARIABLE_ID`, `RULE_ID`) so subsequent commands pick it up automatically.
 
 ---
 
@@ -105,7 +197,7 @@ curl --request POST \
     "settings": {
       "destination": "https://your-tunnel-url.trycloudflare.com/webhook/address-activity",
       "method": "POST",
-      "secret": "local_dev_secret_key_123"
+      "secret": "YOUR_WEBHOOK_SECRET"
     }
   }'
 ```
@@ -195,7 +287,7 @@ Once the rule is active, Blockdaemon will POST to your endpoint whenever the mon
 | Property | Default | Description |
 |---|---|---|
 | `server.port` | `8080` | HTTP port the server listens on |
-| `blockdaemon.webhook.secret` | `local_dev_secret_key_123` | Must match the `secret` you set when creating the target in step 3a |
+| `blockdaemon.webhook.secret` | `${BLOCKDAEMON_WEBHOOK_SECRET}` | Read from env var — set in `.env` or export before running |
 | `logging.level.ly.bit.blockdaemon` | `DEBUG` | Log level for this application |
 
 ---

@@ -40,3 +40,8 @@ build/
 .DS_Store
 
 .claude/
+
+### Environment — never commit real credentials
+.env
+src/main/resources/application-local.properties
+

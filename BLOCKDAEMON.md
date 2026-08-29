@@ -52,7 +52,7 @@ curl --request POST \
     "settings": {
       "destination": "[https://your-tunnel-url.trycloudflare.com/webhook](https://your-tunnel-url.trycloudflare.com/webhook)",
       "method": "POST",
-      "secret": "local_dev_secret_key_123"
+      "secret": "YOUR_WEBHOOK_SECRET"
     }
   }'
 ```
