@@ -9,12 +9,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * Emitted when a new block is finalized on the chain, regardless of address.
  * This is a chain-level event — subscribe via a rule with variable_type: event_type.
  *
- * Note: Schema is best-effort — refine from recorded NDJSON payloads.
+ * Verified against real Ethereum mainnet payloads.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record BlockData(
         @JsonProperty("block_hash") String blockHash,
         @JsonProperty("block_number") long blockNumber,
         @JsonProperty("parent_hash") String parentHash,
-        long timestamp
+        @JsonProperty("block_timestamp") long blockTimestamp
 ) {}

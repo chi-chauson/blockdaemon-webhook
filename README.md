@@ -27,9 +27,12 @@ Edit `.env` and fill in:
 | `BLOCKDAEMON_API_KEY` | Your Blockdaemon API key (JSON-RPC → API Keys in the dashboard) |
 | `BLOCKDAEMON_WEBHOOK_SECRET` | A secret string you choose — used for CRC challenge and payload verification |
 | `TUNNEL_URL` | Your Cloudflare tunnel URL (changes each time cloudflared restarts) |
-| `TARGET_ID` | Assigned by Blockdaemon after `make create-target` |
-| `VARIABLE_ID` | Assigned by Blockdaemon after `make create-variable` |
-| `RULE_ID` | Assigned by Blockdaemon after `make create-rule` |
+| `TARGET_ID` | Shared webhook target — assigned once by `make create-target`, reused by every protocol below |
+| `ETH_VARIABLE_ID` / `ETH_RULE_ID` | Ethereum address rule — `make create-eth-variable` / `make create-eth-rule` |
+| `ETH_CHAIN_VARIABLE_ID` / `ETH_CHAIN_RULE_ID` | Ethereum block/reorg rule — `make create-eth-chain-variable` / `make create-eth-chain-rule` |
+| `BTC_VARIABLE_ID` / `BTC_RULE_ID` | Bitcoin address rule — `make create-btc-variable` / `make create-btc-rule` |
+| `SOL_VARIABLE_ID` / `SOL_RULE_ID` | Solana address rule — `make create-sol-variable` / `make create-sol-rule` |
+| `XRP_VARIABLE_ID` / `XRP_RULE_ID` | XRP address rule — `make create-xrp-variable` / `make create-xrp-rule` |
 
 The app reads `BLOCKDAEMON_WEBHOOK_SECRET` as an environment variable at startup. Export it before running:
 
@@ -57,40 +60,82 @@ make run           # start the Spring Boot app
 make tunnel        # start the Cloudflare tunnel (separate terminal)
 ```
 
-### Setup
+### Shared setup
+
+One target is reused by every protocol below — it's just a webhook destination, not chain-specific.
 
 ```bash
-make verify-key              # verify API key works for streaming
-make create-target           # register the webhook endpoint (set TUNNEL_URL in .env first)
-make create-variable         # create an address filter variable
-make create-rule             # create the rule (set TARGET_ID and VARIABLE_ID in .env first)
+make verify-key              # verify API key works for streaming, and list supported protocol slugs
+make create-target           # register the shared webhook endpoint (set TUNNEL_URL in .env first)
 ```
 
-### Addresses
+### Ethereum
 
 ```bash
-make list-addresses          # list monitored addresses
-make add-vitalik             # add Vitalik's address for testing
-make add-usdc                # add USDC contract for high-volume testing
-make add-address ADDRESS=0x… # add any address
-make remove-address VALUE_ID=… # remove by value id
+make create-eth-variable     # create an Ethereum address filter variable
+make add-eth-vitalik         # add Vitalik's address for testing
+make add-eth-usdc            # add USDC contract for high-volume testing
+make create-eth-rule         # create the rule (set TARGET_ID and ETH_VARIABLE_ID in .env first)
 ```
 
-### Chain events
+### Ethereum chain events (block / reorg)
 
 ```bash
-make add-block-event         # subscribe to block events
-make add-reorg-event         # subscribe to reorg events
-make create-chain-variable   # create an event_type variable
+make create-eth-chain-variable   # create an event_type variable
+make add-eth-block-event         # subscribe to block events
+make add-eth-reorg-event         # subscribe to reorg events
+make create-eth-chain-rule       # create the rule (set TARGET_ID and ETH_CHAIN_VARIABLE_ID in .env first)
+```
+
+### Bitcoin
+
+```bash
+make create-btc-variable     # create a Bitcoin address filter variable
+make add-btc-genesis         # add the Bitcoin genesis address for testing
+make create-btc-rule         # create the rule (set TARGET_ID and BTC_VARIABLE_ID in .env first)
+```
+
+### Solana
+
+```bash
+make create-sol-variable     # create a Solana address filter variable
+make add-sol-usdc            # add the official Solana USDC mint for testing
+make create-sol-rule         # create the rule (set TARGET_ID and SOL_VARIABLE_ID in .env first)
+```
+
+### XRP
+
+Confirm the exact protocol slug first — `make verify-key` lists supported protocols. Override with `XRP_PROTOCOL=xrp` if it isn't `ripple`.
+
+```bash
+make create-xrp-variable     # create an XRP address filter variable
+make add-xrp-genesis         # add Ripple's well-known genesis/reserve account for testing
+make create-xrp-rule         # create the rule (set TARGET_ID and XRP_VARIABLE_ID in .env first)
+```
+
+### Managing addresses
+
+These generic targets work against any variable — point `VARIABLE_ID` at `ETH_VARIABLE_ID`, `ETH_CHAIN_VARIABLE_ID`, `BTC_VARIABLE_ID`, `SOL_VARIABLE_ID`, or `XRP_VARIABLE_ID`:
+
+```bash
+make list-addresses VARIABLE_ID=…              # list monitored addresses
+make add-address VARIABLE_ID=… ADDRESS=0x…     # add any address
+make remove-address VARIABLE_ID=… VALUE_ID=…   # remove by value id
 ```
 
 ### List & cleanup
 
 ```bash
-make list-rules              # list all rules
-make list-variables          # list all variables
-make list-targets            # list all targets
-make cleanup                 # delete rule → variable → target in safe order
+make list-rules               # list all rules
+make list-variables           # list all variables
+make list-targets              # list all targets
+
+make cleanup-eth              # delete the Ethereum rule and variable
+make cleanup-eth-chain        # delete the Ethereum chain-events rule and variable
+make cleanup-btc              # delete the Bitcoin rule and variable
+make cleanup-sol              # delete the Solana rule and variable
+make cleanup-xrp              # delete the XRP rule and variable
+make cleanup-all              # run all of the above, then delete the shared target
 ```
 
 ### Recorded events
@@ -99,7 +144,7 @@ make cleanup                 # delete rule → variable → target in safe order
 make event-count             # count recorded events by type
 ```
 
-> After each `create-*` command, save the returned `id` into `.env` (`TARGET_ID`, `VARIABLE_ID`, `RULE_ID`) so subsequent commands pick it up automatically.
+> After each `create-*` command, save the returned `id` into the matching `.env` field (`TARGET_ID`, `ETH_VARIABLE_ID`, `ETH_RULE_ID`, `BTC_VARIABLE_ID`, etc.) so subsequent commands pick it up automatically.
 
 ---
 
@@ -501,6 +546,56 @@ curl -s -X DELETE https://svc.blockdaemon.com/streaming/v2/variables/{variable_i
 
 ---
 
+## Registering Ethereum, Bitcoin, Solana, and XRP
+
+A single webhook target is protocol-agnostic — it is just a destination URL, so the same `TARGET_ID` (from [3a](#3a-create-a-target), or `make create-target`) is reused for every chain below. Each chain needs its own **variable** (address list) and **rule** (protocol + network + target + variable binding). All commands here are equivalent to the `curl` calls in [Step 3](#step-3--configure-blockdaemon) — pick whichever style you prefer.
+
+Before registering XRP, confirm the exact protocol slug Blockdaemon expects (it may be `xrp` or `ripple`):
+
+```bash
+make verify-key
+```
+
+### Ethereum
+
+```bash
+make create-eth-variable     # 1. create a variable
+make add-eth-vitalik         # 2. add an address (Vitalik's — moderate activity, good for testing)
+make create-eth-rule         # 3. create the rule (set TARGET_ID and ETH_VARIABLE_ID in .env first)
+```
+
+### Bitcoin
+
+```bash
+make create-btc-variable     # 1. create a variable
+make add-btc-genesis         # 2. add an address (the Bitcoin genesis address — low volume; use a busier one from a block explorer for more events)
+make create-btc-rule         # 3. create the rule (set TARGET_ID and BTC_VARIABLE_ID in .env first)
+```
+
+Bitcoin is a UTXO chain — expect `pending_tx`, `pending_tx_removed`, `confirmed_input`, and `confirmed_output` events instead of Ethereum's `confirmed_tx`/`confirmed_balance` shape.
+
+### Solana
+
+```bash
+make create-sol-variable     # 1. create a variable
+make add-sol-usdc            # 2. add an address (the official Circle USDC mint on Solana — good for triggering confirmed_token_balance)
+make create-sol-rule         # 3. create the rule (set TARGET_ID and SOL_VARIABLE_ID in .env first)
+```
+
+### XRP
+
+```bash
+make create-xrp-variable     # 1. create a variable
+make add-xrp-genesis         # 2. add an address (Ripple's well-known genesis/reserve account)
+make create-xrp-rule         # 3. create the rule — set TARGET_ID and XRP_VARIABLE_ID in .env first; override XRP_PROTOCOL=xrp if the verify-key output above didn't say "ripple"
+```
+
+XRP emits `trustline` events when a non-native asset relationship is created, modified, or removed for the monitored account — you may need to watch both an issuer and a holder address to see activity quickly.
+
+> After each `create-*-variable` and `create-*-rule` command, save the returned `id` into the matching `.env` field so the next command in the sequence can use it.
+
+---
+
 ## Cleanup
 
 Blockdaemon does not document whether deleting a target cascades to rules and variables. To be safe, delete in dependency order — rules first since they reference both targets and variables, then variables, then the target.
@@ -545,28 +640,3 @@ curl -s https://svc.blockdaemon.com/streaming/v2/variables -H 'X-API-Key: YOUR_A
 # List all targets
 curl -s https://svc.blockdaemon.com/streaming/v2/targets -H 'X-API-Key: YOUR_API_KEY'
 ```
-
----
-
-## Troubleshooting
-
-**Q: Should I start the app before starting the cloudflared tunnel?**
-Yes. Start the Spring Boot app first, then the tunnel. The CRC challenge fires the moment you create the Blockdaemon target — the app must be reachable to respond to it.
-
-**Q: cloudflared shows `connection refused` errors.**
-This happens when the Spring Boot app is down or still starting up. cloudflared stays running and will automatically recover once the app is back on port `8080`. You do not need to restart cloudflared.
-
-**Q: Do I need to restart cloudflared when I restart the app?**
-No. Keep cloudflared running at all times. Restarting it gives you a new random URL, which no longer matches the target you registered with Blockdaemon — you would have to update or recreate the target.
-
-**Q: Where is the API key? I don't see it in the dashboard.**
-It is not under a general settings page. Navigate to **JSON-RPC → API Keys** in the left sidebar. The JSON-RPC key works for event streaming as well.
-
-**Q: The app logs show `type=null` for incoming events.**
-The payload field names from Blockdaemon don't match the DTO. Temporarily switch the controller to log the raw request body (`@RequestBody String rawBody`) to see the actual JSON, then update the model fields accordingly.
-
-**Q: The app logs show `Signature header: (none)`.**
-Blockdaemon may use a different header name than `X-Blockdaemon-Signature`. Log all incoming headers (`HttpServletRequest.getHeaderNames()`) on the next event to identify the correct header name.
-
-**Q: The app compiled but fails to start with `Unsupported class file major version`.**
-Spring Boot 3.5.3's ASM library does not support Java 26 class files. The `pom.xml` is already set to compile to Java 21 bytecode (`<java.version>21</java.version>`). Make sure you did not change this value, and run `mvn clean compile` before restarting.
