@@ -92,6 +92,7 @@ make create-eth-chain-rule       # create the rule (set TARGET_ID and ETH_CHAIN_
 ```bash
 make create-btc-variable     # create a Bitcoin address filter variable
 make add-btc-genesis         # add the Bitcoin genesis address for testing
+make add-btc-binance         # add Binance's active Bitcoin hot wallet (2.3M+ tx, verified) for high-volume testing
 make create-btc-rule         # create the rule (set TARGET_ID and BTC_VARIABLE_ID in .env first)
 ```
 
@@ -100,6 +101,8 @@ make create-btc-rule         # create the rule (set TARGET_ID and BTC_VARIABLE_I
 ```bash
 make create-sol-variable     # create a Solana address filter variable
 make add-sol-usdc            # add the official Solana USDC mint for testing
+make add-sol-hot-wallet      # add a very high-activity exchange-pattern wallet (5M+ outbound transfers; exchange attribution unconfirmed)
+make add-sol-jupiter         # add the Jupiter Aggregator v6 program — routes most Solana swap volume
 make create-sol-rule         # create the rule (set TARGET_ID and SOL_VARIABLE_ID in .env first)
 ```
 
@@ -110,6 +113,7 @@ Confirm the exact protocol slug first — `make verify-key` lists supported prot
 ```bash
 make create-xrp-variable     # create an XRP address filter variable
 make add-xrp-genesis         # add Ripple's well-known genesis/reserve account for testing
+make add-xrp-binance         # add Binance's active XRP operational hot wallet for high-volume testing
 make create-xrp-rule         # create the rule (set TARGET_ID and XRP_VARIABLE_ID in .env first)
 ```
 
@@ -274,15 +278,23 @@ Save the returned variable `id`.
 
 Append the wallet addresses you want to monitor. Replace `{variable_id}` with the id from 3b.
 
-For testing, pick an address that sees frequent activity so you don't have to wait long for your first event:
+For testing, pick an address that sees frequent activity so you don't have to wait long for your first event. The addresses below are the same ones wired up as `make add-*` shortcuts (see [Using Make](#using-make)):
 
-| Address | Description | Activity |
-|---|---|---|
-| `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045` | Vitalik Buterin — **recommended for testing** | Moderate — events within minutes, easy to read |
-| `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | USDC contract | Very high — nearly every block |
-| `0xE592427A0AEce92De3Edee1F18E0157C05861564` | Uniswap V3 Router | Very high — every swap |
+| Chain | Address | Description | Activity |
+|---|---|---|---|
+| Ethereum | `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045` | Vitalik Buterin — **recommended for first test** | Moderate — events within minutes, easy to read |
+| Ethereum | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | USDC contract | Very high — nearly every block |
+| Ethereum | `0xE592427A0AEce92De3Edee1F18E0157C05861564` | Uniswap V3 Router | Very high — every swap |
+| Bitcoin | `1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa` | Genesis address | Very low — mostly untouched |
+| Bitcoin | `bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h` | Binance's active hot wallet — verified 2.3M+ transactions | Very high |
+| Solana | `11111111111111111111111111111111` | Native System Program — executes every plain SOL transfer, works on **any cluster including testnet** | High (testnet volume is inherently lower than mainnet) |
+| Solana | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | Official Circle USDC mint | **Mainnet only** — rejected if your key only has Solana testnet enabled |
+| Solana | `6LY1JzAFVZsP2a2xKrtU6znQMQ5h4i7tocWdgrkZzkzF` | High-activity exchange-pattern wallet (5M+ outbound transfers; exchange attribution unconfirmed) | **Mainnet only** — very high |
+| Solana | `JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4` | Jupiter Aggregator v6 program | **Mainnet only** — very high |
+| XRP | `rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh` | Ripple's well-known genesis/reserve account | Low |
+| XRP | `rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh` | Binance's active operational hot wallet — verified high `Sequence`, continuous withdrawals | Very high |
 
-> Start with Vitalik's address. It is active enough to get events quickly but not so active that it floods your logs. USDC and Uniswap generate complex contract event types (`confirmed_tx_log`, traces) that the current DTO does not fully model yet.
+> Start with Vitalik's address for your first test — active enough to see events quickly without flooding your logs. USDC and Uniswap generate high-volume `confirmed_tx_log`/`confirmed_tx_trace` events (both fully modeled). For Solana, check which network your API key supports first (`make verify-key`) — a mainnet-only address will be rejected outright if only testnet is enabled.
 
 ```bash
 curl --request POST \
@@ -568,7 +580,8 @@ make create-eth-rule         # 3. create the rule (set TARGET_ID and ETH_VARIABL
 
 ```bash
 make create-btc-variable     # 1. create a variable
-make add-btc-genesis         # 2. add an address (the Bitcoin genesis address — low volume; use a busier one from a block explorer for more events)
+make add-btc-genesis         # 2a. add an address (the Bitcoin genesis address — low volume)
+make add-btc-binance         # 2b. or: Binance's active hot wallet — verified 2.3M+ transactions, much higher volume
 make create-btc-rule         # 3. create the rule (set TARGET_ID and BTC_VARIABLE_ID in .env first)
 ```
 
@@ -578,7 +591,9 @@ Bitcoin is a UTXO chain — expect `pending_tx`, `pending_tx_removed`, `confirme
 
 ```bash
 make create-sol-variable     # 1. create a variable
-make add-sol-usdc            # 2. add an address (the official Circle USDC mint on Solana — good for triggering confirmed_token_balance)
+make add-sol-usdc            # 2a. add an address (the official Circle USDC mint on Solana — good for triggering confirmed_token_balance)
+make add-sol-hot-wallet      # 2b. or: a very high-activity exchange-pattern wallet (5M+ outbound transfers; exchange attribution unconfirmed)
+make add-sol-jupiter         # 2c. or: the Jupiter Aggregator v6 program — routes most Solana swap volume, fires frequently
 make create-sol-rule         # 3. create the rule (set TARGET_ID and SOL_VARIABLE_ID in .env first)
 ```
 
@@ -586,7 +601,8 @@ make create-sol-rule         # 3. create the rule (set TARGET_ID and SOL_VARIABL
 
 ```bash
 make create-xrp-variable     # 1. create a variable
-make add-xrp-genesis         # 2. add an address (Ripple's well-known genesis/reserve account)
+make add-xrp-genesis         # 2a. add an address (Ripple's well-known genesis/reserve account — low volume)
+make add-xrp-binance         # 2b. or: Binance's active operational hot wallet — continuous outgoing withdrawals, much higher volume
 make create-xrp-rule         # 3. create the rule — set TARGET_ID and XRP_VARIABLE_ID in .env first; override XRP_PROTOCOL=xrp if the verify-key output above didn't say "ripple"
 ```
 

@@ -31,8 +31,8 @@ public class WebhookEventDispatcher {
             case "unified_staking_reward"         -> handleStakingReward(event);
             case "unified_pending_tx"             -> handlePendingTx(event);
             case "unified_pending_tx_removed"     -> handlePendingTxRemoved(event);
-            case "unified_confirmed_input"         -> handleUtxo(event, "input");
-            case "unified_confirmed_output"        -> handleUtxo(event, "output");
+            case "unified_confirmed_input"         -> handleConfirmedInput(event);
+            case "unified_confirmed_output"        -> handleConfirmedOutput(event);
             case "unified_confirmed_token_balance" -> handleConfirmedTokenBalance(event);
             case "unified_trustline"               -> handleTrustline(event);
             case "unified_block"                   -> handleBlock(event);
@@ -49,8 +49,8 @@ public class WebhookEventDispatcher {
                     data.transfers() != null ? data.transfers().size() : 0);
             if (data.transfers() != null) {
                 data.transfers().forEach(t ->
-                        log.info("  transfer asset={} from={} to={} value={}",
-                                t.asset(), t.from(), t.to(), t.value()));
+                        log.info("  transfer asset={} from={} to={} value={} eventName={}",
+                                t.asset(), t.from(), t.to(), t.value(), t.eventName()));
             }
         });
     }
@@ -93,21 +93,39 @@ public class WebhookEventDispatcher {
     }
 
     private void handlePendingTx(WebhookEvent event) {
-        parse(event, PendingTxData.class).ifPresent(data ->
-                log.info("[pending_tx] txHash={} from={} to={} value={}",
-                        data.txHash(), data.from(), data.to(), data.value()));
+        parse(event, PendingTxData.class).ifPresent(data -> {
+            log.info("[pending_tx] txId={} status={} transfers={}",
+                    data.txId(), data.status(),
+                    data.transfers() != null ? data.transfers().size() : 0);
+            if (data.transfers() != null) {
+                data.transfers().forEach(t ->
+                        log.info("  {} asset={} from={} value={}",
+                                t.eventName(), t.asset(), t.from(), t.value()));
+            }
+        });
     }
 
     private void handlePendingTxRemoved(WebhookEvent event) {
         parse(event, PendingTxData.class).ifPresent(data ->
-                log.info("[pending_tx_removed] txHash={} from={} to={}",
-                        data.txHash(), data.from(), data.to()));
+                log.info("[pending_tx_removed] txId={} status={}", data.txId(), data.status()));
     }
 
-    private void handleUtxo(WebhookEvent event, String direction) {
-        parse(event, UtxoData.class).ifPresent(data ->
-                log.info("[utxo_{}] txHash={} address={} value={} block={}",
-                        direction, data.txHash(), data.address(), data.value(), data.blockNumber()));
+    private void handleConfirmedInput(WebhookEvent event) {
+        parse(event, ConfirmedInputData.class).ifPresent(data ->
+                log.info("[confirmed_input] txid={} vout={} address={} value={} block={}",
+                        data.txid(), data.vout(),
+                        data.prevout() != null && data.prevout().scriptPubKey() != null
+                                ? data.prevout().scriptPubKey().address() : null,
+                        data.prevout() != null ? data.prevout().value() : null,
+                        data.blockNumber()));
+    }
+
+    private void handleConfirmedOutput(WebhookEvent event) {
+        parse(event, ConfirmedOutputData.class).ifPresent(data ->
+                log.info("[confirmed_output] n={} address={} value={} block={}",
+                        data.n(),
+                        data.scriptPubKey() != null ? data.scriptPubKey().address() : null,
+                        data.value(), data.blockNumber()));
     }
 
     private void handleConfirmedTokenBalance(WebhookEvent event) {

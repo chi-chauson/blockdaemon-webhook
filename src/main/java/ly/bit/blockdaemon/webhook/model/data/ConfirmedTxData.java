@@ -12,7 +12,12 @@ import java.util.List;
  * Includes both successful and failed (reverted) transactions — check {@code status}
  * to distinguish them.
  *
- * Schema verified against real Blockdaemon payloads.
+ * {@code fee} is a union type per Blockdaemon's official schema (docs.blockdaemon.com/reference/webhook-receive):
+ * a {@code Transfer}-shaped object (asset/from/to/event_name/value) for non-EVM chains,
+ * or the EVM gas fields below for EVM chains. {@code Fee} merges both shapes since only
+ * one side is populated per chain.
+ *
+ * Schema verified against real Blockdaemon payloads and the official reference.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ConfirmedTxData(
@@ -30,7 +35,8 @@ public record ConfirmedTxData(
             String asset,
             String from,
             String to,
-            long value
+            long value,
+            @JsonProperty("event_name") String eventName
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -40,6 +46,10 @@ public record ConfirmedTxData(
             @JsonProperty("gas_limit") long gasLimit,
             long value,
             @JsonProperty("max_fee_per_gas") Long maxFeePerGas,
-            @JsonProperty("max_priority_fee_per_gas") Long maxPriorityFeePerGas
+            @JsonProperty("max_priority_fee_per_gas") Long maxPriorityFeePerGas,
+            String from,
+            String to,
+            String asset,
+            @JsonProperty("event_name") String eventName
     ) {}
 }

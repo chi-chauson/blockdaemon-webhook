@@ -16,11 +16,17 @@ ETH_CHAIN_VARIABLE_ID ?=
 ETH_CHAIN_RULE_ID     ?=
 BTC_VARIABLE_ID       ?=
 BTC_RULE_ID           ?=
+BTC_UTXO_RULE_ID      ?=
+BTC_CHAIN_VARIABLE_ID ?=
+BTC_CHAIN_RULE_ID     ?=
 SOL_VARIABLE_ID       ?=
 SOL_RULE_ID           ?=
+SOL_NETWORK           ?= mainnet
 XRP_VARIABLE_ID       ?=
 XRP_RULE_ID           ?=
-XRP_PROTOCOL          ?= ripple
+XRP_PROTOCOL          ?= xrp
+XRP_CHAIN_VARIABLE_ID ?=
+XRP_CHAIN_RULE_ID     ?=
 
 CURL := curl -s
 HDR  := -H 'X-API-Key: $(API_KEY)'
@@ -118,29 +124,91 @@ add-btc-genesis: ## Add the Bitcoin genesis address for testing (set BTC_VARIABL
 	$(CURL) -X POST $(BASE_URL)/variables/$(BTC_VARIABLE_ID)/values $(HDR) $(JSON) \
 	  -d '{"value":"1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"}'
 
+add-btc-binance: ## Add Binance's active Bitcoin hot wallet for high-volume testing (2.3M+ tx, verified) (set BTC_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(BTC_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h"}'
+
 delete-btc-rule: ## Delete the Bitcoin rule (set BTC_RULE_ID first)
 	$(CURL) -X DELETE $(BASE_URL)/rules/$(BTC_RULE_ID) $(HDR)
 
-delete-btc-variable: ## Delete the Bitcoin variable (set BTC_VARIABLE_ID first)
+delete-btc-variable: ## Delete the Bitcoin variable (set BTC_VARIABLE_ID first; delete btc/btc-utxo rules referencing it first)
 	$(CURL) -X DELETE $(BASE_URL)/variables/$(BTC_VARIABLE_ID) $(HDR)
 
 cleanup-btc: ## Delete the Bitcoin rule and variable (set BTC_RULE_ID and BTC_VARIABLE_ID first)
 	$(MAKE) delete-btc-rule
 	$(MAKE) delete-btc-variable
 
+# ── Bitcoin UTXO events (confirmed_input / confirmed_output) ────────────────
+# Reuses BTC_VARIABLE_ID — utxo_address is a second interpretation of the same
+# address list, not a separate variable, so no new variable is created here.
+
+create-btc-utxo-rule: ## Create the Bitcoin utxo_address rule for confirmed_input/confirmed_output (reuses BTC_VARIABLE_ID; set TARGET_ID and BTC_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
+	  -d '{"name":"bitcoin_utxo_watcher","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"utxo_address","variable_id":"$(BTC_VARIABLE_ID)"}],"isActive":true}'
+
+delete-btc-utxo-rule: ## Delete the Bitcoin utxo_address rule (set BTC_UTXO_RULE_ID first)
+	$(CURL) -X DELETE $(BASE_URL)/rules/$(BTC_UTXO_RULE_ID) $(HDR)
+
+cleanup-btc-utxo: ## Delete the Bitcoin utxo_address rule (set BTC_UTXO_RULE_ID first)
+	$(MAKE) delete-btc-utxo-rule
+
+# ── Bitcoin chain events (block / reorg) ────────────────────────────────────
+
+create-btc-chain-variable: ## Create a Bitcoin chain event (block/reorg) variable
+	$(CURL) -X POST $(BASE_URL)/variables $(HDR) $(JSON) \
+	  -d '{"name":"btc_chain_events","type":"string"}'
+
+create-btc-chain-rule: ## Create the Bitcoin chain-events rule (set TARGET_ID and BTC_CHAIN_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
+	  -d '{"name":"bitcoin_chain_events","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(BTC_CHAIN_VARIABLE_ID)"}],"isActive":true}'
+
+add-btc-block-event: ## Subscribe to Bitcoin block events (set BTC_CHAIN_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(BTC_CHAIN_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"block"}'
+
+add-btc-reorg-event: ## Subscribe to Bitcoin reorg events (set BTC_CHAIN_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(BTC_CHAIN_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"reorg"}'
+
+delete-btc-chain-rule: ## Delete the Bitcoin chain-events rule (set BTC_CHAIN_RULE_ID first)
+	$(CURL) -X DELETE $(BASE_URL)/rules/$(BTC_CHAIN_RULE_ID) $(HDR)
+
+delete-btc-chain-variable: ## Delete the Bitcoin chain-events variable (set BTC_CHAIN_VARIABLE_ID first)
+	$(CURL) -X DELETE $(BASE_URL)/variables/$(BTC_CHAIN_VARIABLE_ID) $(HDR)
+
+cleanup-btc-chain: ## Delete the Bitcoin chain-events rule and variable (set BTC_CHAIN_RULE_ID and BTC_CHAIN_VARIABLE_ID first)
+	$(MAKE) delete-btc-chain-rule
+	$(MAKE) delete-btc-chain-variable
+
 # ── Solana ───────────────────────────────────────────────────────────────────
+# This key only has Solana testnet enabled (confirmed via `make verify-key` — no
+# "mainnet" entry for protocol "solana" in the response). add-sol-usdc / add-sol-hot-wallet /
+# add-sol-jupiter below are real mainnet addresses, kept ready for whenever mainnet
+# access is granted — use add-sol-system-program + SOL_NETWORK=testnet until then.
 
 create-sol-variable: ## Create a Solana address filter variable
 	$(CURL) -X POST $(BASE_URL)/variables $(HDR) $(JSON) \
 	  -d '{"name":"sol_wallet_address","type":"string"}'
 
-create-sol-rule: ## Create the Solana mainnet rule (set TARGET_ID and SOL_VARIABLE_ID first)
+create-sol-rule: ## Create the Solana rule on SOL_NETWORK (default mainnet — this key only has solana testnet enabled; set SOL_NETWORK=testnet) (set TARGET_ID and SOL_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"solana_mainnet_watcher","protocol":"solana","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(SOL_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"solana_$(SOL_NETWORK)_watcher","protocol":"solana","network":"$(SOL_NETWORK)","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(SOL_VARIABLE_ID)"}],"isActive":true}'
 
-add-sol-usdc: ## Add the official Solana USDC mint for testing (set SOL_VARIABLE_ID first)
+add-sol-usdc: ## Add the official Solana USDC mint for testing — mainnet only, rejected on this key (set SOL_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(SOL_VARIABLE_ID)/values $(HDR) $(JSON) \
 	  -d '{"value":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"}'
+
+add-sol-hot-wallet: ## Add a very high-activity Solana exchange-pattern wallet — mainnet only, rejected on this key (5M+ outbound transfers; exchange attribution unconfirmed) (set SOL_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(SOL_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"6LY1JzAFVZsP2a2xKrtU6znQMQ5h4i7tocWdgrkZzkzF"}'
+
+add-sol-jupiter: ## Add the Jupiter Aggregator v6 program — mainnet only, rejected on this key (set SOL_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(SOL_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"}'
+
+add-sol-system-program: ## Add the native System Program address — works on any cluster including testnet (set SOL_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(SOL_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"11111111111111111111111111111111"}'
 
 delete-sol-rule: ## Delete the Solana rule (set SOL_RULE_ID first)
 	$(CURL) -X DELETE $(BASE_URL)/rules/$(SOL_RULE_ID) $(HDR)
@@ -166,6 +234,10 @@ add-xrp-genesis: ## Add Ripple's well-known genesis/reserve account for testing 
 	$(CURL) -X POST $(BASE_URL)/variables/$(XRP_VARIABLE_ID)/values $(HDR) $(JSON) \
 	  -d '{"value":"rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh"}'
 
+add-xrp-binance: ## Add Binance's active XRP operational hot wallet for high-volume testing (set XRP_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(XRP_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh"}'
+
 delete-xrp-rule: ## Delete the XRP rule (set XRP_RULE_ID first)
 	$(CURL) -X DELETE $(BASE_URL)/rules/$(XRP_RULE_ID) $(HDR)
 
@@ -175,6 +247,30 @@ delete-xrp-variable: ## Delete the XRP variable (set XRP_VARIABLE_ID first)
 cleanup-xrp: ## Delete the XRP rule and variable (set XRP_RULE_ID and XRP_VARIABLE_ID first)
 	$(MAKE) delete-xrp-rule
 	$(MAKE) delete-xrp-variable
+
+# ── XRP chain events (block only — XRP has no reorg) ────────────────────────
+
+create-xrp-chain-variable: ## Create an XRP chain event (block) variable
+	$(CURL) -X POST $(BASE_URL)/variables $(HDR) $(JSON) \
+	  -d '{"name":"xrp_chain_events","type":"string"}'
+
+create-xrp-chain-rule: ## Create the XRP chain-events rule — block only, XRP has no reorg (set TARGET_ID and XRP_CHAIN_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
+	  -d '{"name":"$(XRP_PROTOCOL)_chain_events","protocol":"$(XRP_PROTOCOL)","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(XRP_CHAIN_VARIABLE_ID)"}],"isActive":true}'
+
+add-xrp-block-event: ## Subscribe to XRP block events (set XRP_CHAIN_VARIABLE_ID first)
+	$(CURL) -X POST $(BASE_URL)/variables/$(XRP_CHAIN_VARIABLE_ID)/values $(HDR) $(JSON) \
+	  -d '{"value":"block"}'
+
+delete-xrp-chain-rule: ## Delete the XRP chain-events rule (set XRP_CHAIN_RULE_ID first)
+	$(CURL) -X DELETE $(BASE_URL)/rules/$(XRP_CHAIN_RULE_ID) $(HDR)
+
+delete-xrp-chain-variable: ## Delete the XRP chain-events variable (set XRP_CHAIN_VARIABLE_ID first)
+	$(CURL) -X DELETE $(BASE_URL)/variables/$(XRP_CHAIN_VARIABLE_ID) $(HDR)
+
+cleanup-xrp-chain: ## Delete the XRP chain-events rule and variable (set XRP_CHAIN_RULE_ID and XRP_CHAIN_VARIABLE_ID first)
+	$(MAKE) delete-xrp-chain-rule
+	$(MAKE) delete-xrp-chain-variable
 
 # ── Addresses (generic — works with any *_VARIABLE_ID) ──────────────────────
 
@@ -207,23 +303,32 @@ delete-target: ## Delete the shared target (set TARGET_ID first; do this last)
 cleanup-all: ## Delete every rule and variable across all protocols, then the shared target
 	$(MAKE) cleanup-eth
 	$(MAKE) cleanup-eth-chain
+	$(MAKE) cleanup-btc-utxo
+	$(MAKE) cleanup-btc-chain
 	$(MAKE) cleanup-btc
 	$(MAKE) cleanup-sol
+	$(MAKE) cleanup-xrp-chain
 	$(MAKE) cleanup-xrp
 	$(MAKE) delete-target
 
 # ── Events ───────────────────────────────────────────────────────────────────
 
-event-count: ## Count recorded events by type
-	@grep -o '"event_type":"[^"]*"' output/webhook-events.ndjson | sort | uniq -c | sort -rn
+event-count: ## Count recorded events by type, across all chains (set CHAIN=ethereum to filter one)
+	@grep -h -o '"event_type":"[^"]*"' output/webhook-events-$(if $(CHAIN),$(CHAIN)*,*).ndjson | sort | uniq -c | sort -rn
 
 .PHONY: help run tunnel verify-key create-target \
         create-eth-variable create-eth-rule add-eth-vitalik add-eth-usdc \
         delete-eth-rule delete-eth-variable cleanup-eth \
         create-eth-chain-variable create-eth-chain-rule add-eth-block-event add-eth-reorg-event \
         delete-eth-chain-rule delete-eth-chain-variable cleanup-eth-chain \
-        create-btc-variable create-btc-rule add-btc-genesis delete-btc-rule delete-btc-variable cleanup-btc \
-        create-sol-variable create-sol-rule add-sol-usdc delete-sol-rule delete-sol-variable cleanup-sol \
-        create-xrp-variable create-xrp-rule add-xrp-genesis delete-xrp-rule delete-xrp-variable cleanup-xrp \
+        create-btc-variable create-btc-rule add-btc-genesis add-btc-binance delete-btc-rule delete-btc-variable cleanup-btc \
+        create-btc-utxo-rule delete-btc-utxo-rule cleanup-btc-utxo \
+        create-btc-chain-variable create-btc-chain-rule add-btc-block-event add-btc-reorg-event \
+        delete-btc-chain-rule delete-btc-chain-variable cleanup-btc-chain \
+        create-sol-variable create-sol-rule add-sol-usdc add-sol-hot-wallet add-sol-jupiter add-sol-system-program \
+        delete-sol-rule delete-sol-variable cleanup-sol \
+        create-xrp-variable create-xrp-rule add-xrp-genesis add-xrp-binance delete-xrp-rule delete-xrp-variable cleanup-xrp \
+        create-xrp-chain-variable create-xrp-chain-rule add-xrp-block-event \
+        delete-xrp-chain-rule delete-xrp-chain-variable cleanup-xrp-chain \
         list-addresses add-address remove-address \
         list-rules list-variables list-targets delete-target cleanup-all event-count
