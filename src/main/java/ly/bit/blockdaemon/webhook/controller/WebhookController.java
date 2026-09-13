@@ -70,7 +70,7 @@ public class WebhookController {
             @RequestBody String rawBody,
             @RequestHeader(value = "x-bd-webhooks-signature", required = false) String signature
     ) {
-        recorder.record(rawBody);
+        recorder.record(rawBody, "webhook");
 
         try {
             WebhookEvent event = objectMapper.readValue(rawBody, WebhookEvent.class);

@@ -47,7 +47,7 @@ Blockdaemon WebSocket connected (target=<id>, ack=true)
 ```
 
 ...followed by `confirmed_tx_trace` / `confirmed_balance` log lines, and matching entries
-appearing in `output/webhook-events-ethereum.ndjson`.
+appearing in `output/websocket-events-ethereum.ndjson`.
 
 > Avoid testing with Vitalik's address (`make add-eth-vitalik`) here — it can go long stretches
 > (whole weekends, in practice) with zero activity, which looks identical to a broken connection.

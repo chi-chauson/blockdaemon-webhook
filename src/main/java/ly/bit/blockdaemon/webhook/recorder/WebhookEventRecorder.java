@@ -19,18 +19,20 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
- * Appends raw webhook payloads to per-chain NDJSON files (one JSON object per line),
- * split by the payload's {@code protocol} field (e.g. {@code webhook-events-ethereum.ndjson}).
- * Splitting by chain keeps schema discovery isolated — each protocol has a different
- * event shape, so mixing them in one file makes them harder to inspect.
+ * Appends raw event payloads to per-chain NDJSON files (one JSON object per line), named
+ * {@code {source}-events-{protocol}.ndjson} — e.g. {@code webhook-events-ethereum.ndjson} for
+ * events received via {@link ly.bit.blockdaemon.webhook.controller.WebhookController} or
+ * {@code websocket-events-ethereum.ndjson} for events received via
+ * {@link ly.bit.blockdaemon.webhook.ws.BlockdaemonWebSocketClient}. Splitting by source keeps
+ * the two delivery channels distinguishable on disk; splitting by chain keeps schema discovery
+ * isolated, since each protocol has a different event shape.
  *
- * Writing is offloaded to a background thread via a queue so the HTTP handler
- * thread is never blocked by I/O. No events are dropped — the queue is unbounded
- * and the writer drains it continuously.
+ * Writing is offloaded to a background thread via a queue so the calling thread (HTTP handler
+ * or WebSocket listener) is never blocked by I/O. No events are dropped — the queue is
+ * unbounded and the writer drains it continuously.
  *
- * Each chain's file is rotated independently once it reaches the configured max
- * size. Rotated files are renamed with a timestamp suffix and a fresh file is
- * created automatically.
+ * Each file is rotated independently once it reaches the configured max size. Rotated files
+ * are renamed with a timestamp suffix and a fresh file is created automatically.
  *
  * Each file can be replayed line-by-line in integration tests.
  */
@@ -41,11 +43,13 @@ public class WebhookEventRecorder {
     private static final DateTimeFormatter ROTATION_FMT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final String UNKNOWN_PROTOCOL = "unknown";
 
+    private record QueuedEvent(String rawJson, String source) {}
+
     private final Path outputDir;
     private final long maxBytes;
     private final ObjectMapper objectMapper;
-    private final BlockingQueue<String> queue = new LinkedBlockingQueue<>();
-    private final Map<String, Path> currentFileByProtocol = new HashMap<>();
+    private final BlockingQueue<QueuedEvent> queue = new LinkedBlockingQueue<>();
+    private final Map<String, Path> currentFileByKey = new HashMap<>();
 
     public WebhookEventRecorder(
             @Value("${blockdaemon.webhook.record-dir:output}") String recordDir,
@@ -59,27 +63,30 @@ public class WebhookEventRecorder {
         Thread writer = new Thread(this::drain, "webhook-recorder");
         writer.setDaemon(true);
         writer.start();
-        log.info("Recording webhook events per chain under {}", outputDir.toAbsolutePath());
+        log.info("Recording events per source/chain under {}", outputDir.toAbsolutePath());
     }
 
-    public void record(String rawJson) {
-        queue.add(rawJson);
+    /**
+     * @param source delivery channel this event arrived on — {@code "webhook"} or {@code "websocket"}
+     */
+    public void record(String rawJson, String source) {
+        queue.add(new QueuedEvent(rawJson, source));
     }
 
     private void drain() {
         while (true) {
             try {
-                String line = queue.take();
-                String protocol = extractProtocol(line);
-                Path file = rotateIfNeeded(protocol);
-                Files.writeString(file, line + "\n",
+                QueuedEvent event = queue.take();
+                String protocol = extractProtocol(event.rawJson());
+                Path file = rotateIfNeeded(event.source(), protocol);
+                Files.writeString(file, event.rawJson() + "\n",
                         StandardOpenOption.CREATE,
                         StandardOpenOption.APPEND);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             } catch (IOException e) {
-                log.error("Failed to write webhook event to file", e);
+                log.error("Failed to write event to file", e);
             }
         }
     }
@@ -93,19 +100,20 @@ public class WebhookEventRecorder {
         }
     }
 
-    private Path rotateIfNeeded(String protocol) throws IOException {
-        Path baseFile = outputDir.resolve("webhook-events-" + protocol + ".ndjson");
-        Path currentFile = currentFileByProtocol.getOrDefault(protocol, baseFile);
+    private Path rotateIfNeeded(String source, String protocol) throws IOException {
+        String key = source + ":" + protocol;
+        Path baseFile = outputDir.resolve(source + "-events-" + protocol + ".ndjson");
+        Path currentFile = currentFileByKey.getOrDefault(key, baseFile);
 
         if (Files.exists(currentFile) && Files.size(currentFile) >= maxBytes) {
             String timestamp = LocalDateTime.now().format(ROTATION_FMT);
-            Path rotated = outputDir.resolve("webhook-events-" + protocol + "-" + timestamp + ".ndjson");
+            Path rotated = outputDir.resolve(source + "-events-" + protocol + "-" + timestamp + ".ndjson");
             Files.move(currentFile, rotated);
-            log.info("Rotated {} events file to {}", protocol, rotated.getFileName());
+            log.info("Rotated {} {} events file to {}", source, protocol, rotated.getFileName());
             currentFile = baseFile;
         }
 
-        currentFileByProtocol.put(protocol, currentFile);
+        currentFileByKey.put(key, currentFile);
         return currentFile;
     }
 }

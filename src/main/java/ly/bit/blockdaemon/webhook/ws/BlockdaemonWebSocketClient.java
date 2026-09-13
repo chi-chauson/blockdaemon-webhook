@@ -126,7 +126,7 @@ public class BlockdaemonWebSocketClient implements WebSocket.Listener {
     }
 
     private void handleMessage(WebSocket webSocket, String rawJson) {
-        recorder.record(rawJson);
+        recorder.record(rawJson, "websocket");
         try {
             WebhookEvent event = objectMapper.readValue(rawJson, WebhookEvent.class);
             dispatcher.dispatch(event);
