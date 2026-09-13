@@ -6,9 +6,24 @@ API_KEY     ?= $(BLOCKDAEMON_API_KEY)
 SECRET      ?= $(BLOCKDAEMON_WEBHOOK_SECRET)
 TUNNEL_URL  ?= https://your-tunnel-url.trycloudflare.com
 
-# TARGET_ID is shared across every protocol below — a target is just a webhook
-# destination, so one is reused by all rules regardless of chain.
+# Event delivery format for every rule created below. UNIFIED_V1_RAW gives the
+# normalized cross-chain schema plus the untouched native payload in a "raw"
+# key — verified byte-identical to ALL_DATA for every event type except
+# confirmed_tx_log, which UNIFIED_V1_RAW did not deliver in testing. Override
+# per-command if you need ALL_DATA for that event type, e.g.:
+#   make create-eth-rule TEMPLATE=ALL_DATA
+TEMPLATE ?= UNIFIED_V1_RAW
+
+# TARGET_ID is shared across every protocol below — a target is just a
+# delivery destination (webhook or websocket), so one is reused by all rules
+# regardless of chain. Point it at whichever target type you're using.
 TARGET_ID ?=
+
+# WebSocket target — alternative to the webhook+tunnel flow. Created via
+# `make create-ws-target`; the app reads this as WEBSOCKET_TARGET_ID at
+# runtime to know which target to connect to.
+WEBSOCKET_TARGET_ID ?=
+WS_MODE              ?= ack
 
 ETH_VARIABLE_ID       ?=
 ETH_RULE_ID           ?=
@@ -39,10 +54,24 @@ help: ## Show available commands
 
 # ── App ──────────────────────────────────────────────────────────────────────
 
-run: ## Start the Spring Boot app
-	BLOCKDAEMON_WEBHOOK_SECRET=$(BLOCKDAEMON_WEBHOOK_SECRET) mvn spring-boot:run
+# Only forwarded to the app when actually set in .env — Spring's boolean
+# binding for blockdaemon.websocket.enabled fails on an empty string, so an
+# unset var must be left out of the environment entirely, not passed as "".
+WS_RUN_ENV :=
+ifneq ($(strip $(BLOCKDAEMON_WEBSOCKET_ENABLED)),)
+WS_RUN_ENV += BLOCKDAEMON_WEBSOCKET_ENABLED=$(BLOCKDAEMON_WEBSOCKET_ENABLED)
+endif
+ifneq ($(strip $(WEBSOCKET_TARGET_ID)),)
+WS_RUN_ENV += WEBSOCKET_TARGET_ID=$(WEBSOCKET_TARGET_ID)
+endif
 
-tunnel: ## Start the Cloudflare tunnel (app must be running first)
+run: ## Start the Spring Boot app (webhook mode by default; set BLOCKDAEMON_WEBSOCKET_ENABLED=true in .env for websocket mode)
+	BLOCKDAEMON_WEBHOOK_SECRET=$(BLOCKDAEMON_WEBHOOK_SECRET) \
+	BLOCKDAEMON_API_KEY=$(BLOCKDAEMON_API_KEY) \
+	$(WS_RUN_ENV) \
+	mvn spring-boot:run
+
+tunnel: ## Start the Cloudflare tunnel (webhook mode only — not needed for websocket mode)
 	cloudflared tunnel --url http://localhost:8080
 
 # ── Shared setup ─────────────────────────────────────────────────────────────
@@ -54,6 +83,13 @@ create-target: ## Create the shared webhook target (set TUNNEL_URL first)
 	$(CURL) -X POST $(BASE_URL)/targets $(HDR) $(JSON) \
 	  -d '{"name":"local_dev_target","type":"webhook","settings":{"destination":"$(TUNNEL_URL)/webhook/address-activity","method":"POST","secret":"$(SECRET)"}}'
 
+create-ws-target: ## Create a websocket target — no tunnel needed; save the id as WEBSOCKET_TARGET_ID and TARGET_ID
+	$(CURL) -X POST $(BASE_URL)/targets $(HDR) $(JSON) \
+	  -d '{"name":"local_dev_ws_target","type":"websocket","max_buffer_count":2000,"settings":{"mode":"$(WS_MODE)"}}'
+
+delete-ws-target: ## Delete the websocket target (set WEBSOCKET_TARGET_ID first)
+	$(CURL) -X DELETE $(BASE_URL)/targets/$(WEBSOCKET_TARGET_ID) $(HDR)
+
 # ── Ethereum ─────────────────────────────────────────────────────────────────
 
 create-eth-variable: ## Create an Ethereum address filter variable
@@ -62,7 +98,7 @@ create-eth-variable: ## Create an Ethereum address filter variable
 
 create-eth-rule: ## Create the Ethereum mainnet rule (set TARGET_ID and ETH_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"ethereum_mainnet_watcher","protocol":"ethereum","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(ETH_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"ethereum_mainnet_watcher","protocol":"ethereum","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(ETH_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-eth-vitalik: ## Add Vitalik's address for testing (set ETH_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(ETH_VARIABLE_ID)/values $(HDR) $(JSON) \
@@ -90,7 +126,7 @@ create-eth-chain-variable: ## Create an Ethereum chain event (block/reorg) varia
 
 create-eth-chain-rule: ## Create the Ethereum chain-events rule (set TARGET_ID and ETH_CHAIN_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"ethereum_chain_events","protocol":"ethereum","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(ETH_CHAIN_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"ethereum_chain_events","protocol":"ethereum","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(ETH_CHAIN_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-eth-block-event: ## Subscribe to Ethereum block events (set ETH_CHAIN_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(ETH_CHAIN_VARIABLE_ID)/values $(HDR) $(JSON) \
@@ -118,7 +154,7 @@ create-btc-variable: ## Create a Bitcoin address filter variable
 
 create-btc-rule: ## Create the Bitcoin mainnet rule (set TARGET_ID and BTC_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"bitcoin_mainnet_watcher","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(BTC_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"bitcoin_mainnet_watcher","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(BTC_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-btc-genesis: ## Add the Bitcoin genesis address for testing (set BTC_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(BTC_VARIABLE_ID)/values $(HDR) $(JSON) \
@@ -144,7 +180,7 @@ cleanup-btc: ## Delete the Bitcoin rule and variable (set BTC_RULE_ID and BTC_VA
 
 create-btc-utxo-rule: ## Create the Bitcoin utxo_address rule for confirmed_input/confirmed_output (reuses BTC_VARIABLE_ID; set TARGET_ID and BTC_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"bitcoin_utxo_watcher","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"utxo_address","variable_id":"$(BTC_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"bitcoin_utxo_watcher","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"utxo_address","variable_id":"$(BTC_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 delete-btc-utxo-rule: ## Delete the Bitcoin utxo_address rule (set BTC_UTXO_RULE_ID first)
 	$(CURL) -X DELETE $(BASE_URL)/rules/$(BTC_UTXO_RULE_ID) $(HDR)
@@ -160,7 +196,7 @@ create-btc-chain-variable: ## Create a Bitcoin chain event (block/reorg) variabl
 
 create-btc-chain-rule: ## Create the Bitcoin chain-events rule (set TARGET_ID and BTC_CHAIN_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"bitcoin_chain_events","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(BTC_CHAIN_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"bitcoin_chain_events","protocol":"bitcoin","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(BTC_CHAIN_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-btc-block-event: ## Subscribe to Bitcoin block events (set BTC_CHAIN_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(BTC_CHAIN_VARIABLE_ID)/values $(HDR) $(JSON) \
@@ -192,7 +228,7 @@ create-sol-variable: ## Create a Solana address filter variable
 
 create-sol-rule: ## Create the Solana rule on SOL_NETWORK (default mainnet — this key only has solana testnet enabled; set SOL_NETWORK=testnet) (set TARGET_ID and SOL_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"solana_$(SOL_NETWORK)_watcher","protocol":"solana","network":"$(SOL_NETWORK)","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(SOL_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"solana_$(SOL_NETWORK)_watcher","protocol":"solana","network":"$(SOL_NETWORK)","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(SOL_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-sol-usdc: ## Add the official Solana USDC mint for testing — mainnet only, rejected on this key (set SOL_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(SOL_VARIABLE_ID)/values $(HDR) $(JSON) \
@@ -228,7 +264,7 @@ create-xrp-variable: ## Create an XRP address filter variable
 
 create-xrp-rule: ## Create the XRP mainnet rule (set TARGET_ID and XRP_VARIABLE_ID first; verify the XRP_PROTOCOL slug via `make verify-key`)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"$(XRP_PROTOCOL)_mainnet_watcher","protocol":"$(XRP_PROTOCOL)","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(XRP_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"$(XRP_PROTOCOL)_mainnet_watcher","protocol":"$(XRP_PROTOCOL)","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"address","variable_id":"$(XRP_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-xrp-genesis: ## Add Ripple's well-known genesis/reserve account for testing (set XRP_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(XRP_VARIABLE_ID)/values $(HDR) $(JSON) \
@@ -256,7 +292,7 @@ create-xrp-chain-variable: ## Create an XRP chain event (block) variable
 
 create-xrp-chain-rule: ## Create the XRP chain-events rule — block only, XRP has no reorg (set TARGET_ID and XRP_CHAIN_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/rules $(HDR) $(JSON) \
-	  -d '{"name":"$(XRP_PROTOCOL)_chain_events","protocol":"$(XRP_PROTOCOL)","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(XRP_CHAIN_VARIABLE_ID)"}],"isActive":true}'
+	  -d '{"name":"$(XRP_PROTOCOL)_chain_events","protocol":"$(XRP_PROTOCOL)","network":"mainnet","target":"$(TARGET_ID)","condition_type":"match_var","condition":[{"variable_type":"event_type","variable_id":"$(XRP_CHAIN_VARIABLE_ID)"}],"isActive":true,"template":"$(TEMPLATE)"}'
 
 add-xrp-block-event: ## Subscribe to XRP block events (set XRP_CHAIN_VARIABLE_ID first)
 	$(CURL) -X POST $(BASE_URL)/variables/$(XRP_CHAIN_VARIABLE_ID)/values $(HDR) $(JSON) \

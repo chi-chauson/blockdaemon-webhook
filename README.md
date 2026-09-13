@@ -1,6 +1,11 @@
 # Blockdaemon Webhook Listener
 
-A Spring Boot application that listens for Blockdaemon address activity webhook events and logs them.
+A Spring Boot application that listens for Blockdaemon address activity events and logs them.
+
+Two delivery modes are supported:
+
+- **Webhook** (this document) — Blockdaemon POSTs events to a public endpoint; requires a Cloudflare tunnel for local dev.
+- **WebSocket** — the app connects outbound to Blockdaemon instead; no tunnel or public endpoint needed. See [WEBSOCKET.md](WEBSOCKET.md).
 
 ---
 
@@ -27,7 +32,7 @@ Edit `.env` and fill in:
 | `BLOCKDAEMON_API_KEY` | Your Blockdaemon API key (JSON-RPC → API Keys in the dashboard) |
 | `BLOCKDAEMON_WEBHOOK_SECRET` | A secret string you choose — used for CRC challenge and payload verification |
 | `TUNNEL_URL` | Your Cloudflare tunnel URL (changes each time cloudflared restarts) |
-| `TARGET_ID` | Shared webhook target — assigned once by `make create-target`, reused by every protocol below |
+| `TARGET_ID` | Shared target — assigned once by `make create-target` (webhook) or `make create-ws-target` (see [WEBSOCKET.md](WEBSOCKET.md)), reused by every protocol below |
 | `ETH_VARIABLE_ID` / `ETH_RULE_ID` | Ethereum address rule — `make create-eth-variable` / `make create-eth-rule` |
 | `ETH_CHAIN_VARIABLE_ID` / `ETH_CHAIN_RULE_ID` | Ethereum block/reorg rule — `make create-eth-chain-variable` / `make create-eth-chain-rule` |
 | `BTC_VARIABLE_ID` / `BTC_RULE_ID` | Bitcoin address rule — `make create-btc-variable` / `make create-btc-rule` |
@@ -57,24 +62,27 @@ make help          # show all available commands
 
 ```bash
 make run           # start the Spring Boot app
-make tunnel        # start the Cloudflare tunnel (separate terminal)
+make tunnel        # start the Cloudflare tunnel (separate terminal) — webhook mode only, skip for websocket mode
 ```
 
 ### Shared setup
 
-One target is reused by every protocol below — it's just a webhook destination, not chain-specific.
+One target is reused by every protocol below — it's just a delivery destination, not chain-specific.
+Every `create-*-rule` command defaults to `TEMPLATE=UNIFIED_V1_RAW` (normalized cross-chain schema
+plus the untouched native payload); override with `TEMPLATE=ALL_DATA` per-command if needed.
 
 ```bash
 make verify-key              # verify API key works for streaming, and list supported protocol slugs
 make create-target           # register the shared webhook endpoint (set TUNNEL_URL in .env first)
+make create-ws-target        # or: register a websocket target instead — see WEBSOCKET.md
 ```
 
 ### Ethereum
 
 ```bash
 make create-eth-variable     # create an Ethereum address filter variable
-make add-eth-vitalik         # add Vitalik's address for testing
-make add-eth-usdc            # add USDC contract for high-volume testing
+make add-eth-usdc            # add USDC contract for high-volume testing (recommended — fires nearly every block)
+make add-eth-vitalik         # add Vitalik's address — can sit quiet for a long time, don't rely on it for a quick test
 make create-eth-rule         # create the rule (set TARGET_ID and ETH_VARIABLE_ID in .env first)
 ```
 
@@ -282,8 +290,8 @@ For testing, pick an address that sees frequent activity so you don't have to wa
 
 | Chain | Address | Description | Activity |
 |---|---|---|---|
-| Ethereum | `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045` | Vitalik Buterin — **recommended for first test** | Moderate — events within minutes, easy to read |
-| Ethereum | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | USDC contract | Very high — nearly every block |
+| Ethereum | `0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045` | Vitalik Buterin | Low-to-moderate — can sit quiet for a long time (e.g. weekends); don't rely on it for a quick first test |
+| Ethereum | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` | USDC contract — **recommended for first test** | Very high — nearly every block |
 | Ethereum | `0xE592427A0AEce92De3Edee1F18E0157C05861564` | Uniswap V3 Router | Very high — every swap |
 | Bitcoin | `1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa` | Genesis address | Very low — mostly untouched |
 | Bitcoin | `bc1qm34lsc65zpw79lxes69zkqmk6ee3ewf0j77s3h` | Binance's active hot wallet — verified 2.3M+ transactions | Very high |
@@ -294,7 +302,7 @@ For testing, pick an address that sees frequent activity so you don't have to wa
 | XRP | `rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh` | Ripple's well-known genesis/reserve account | Low |
 | XRP | `rEb8TK3gBgk5auZkwc6sHnwrGVJH8DuaLh` | Binance's active operational hot wallet — verified high `Sequence`, continuous withdrawals | Very high |
 
-> Start with Vitalik's address for your first test — active enough to see events quickly without flooding your logs. USDC and Uniswap generate high-volume `confirmed_tx_log`/`confirmed_tx_trace` events (both fully modeled). For Solana, check which network your API key supports first (`make verify-key`) — a mainnet-only address will be rejected outright if only testnet is enabled.
+> Start with the USDC contract for your first test — it fires nearly every block, so you'll see events within seconds regardless of what day/time it is. Vitalik's address looks appealing for a quieter test but can go long stretches (whole weekends, in practice) with zero activity — don't default to it if you want a fast first signal. For Solana, check which network your API key supports first (`make verify-key`) — a mainnet-only address will be rejected outright if only testnet is enabled.
 
 ```bash
 curl --request POST \
@@ -572,7 +580,8 @@ make verify-key
 
 ```bash
 make create-eth-variable     # 1. create a variable
-make add-eth-vitalik         # 2. add an address (Vitalik's — moderate activity, good for testing)
+make add-eth-usdc            # 2a. add an address (USDC contract — fires nearly every block, best for a quick first test)
+make add-eth-vitalik         # 2b. or: Vitalik's address — can go long stretches (whole weekends) with zero activity
 make create-eth-rule         # 3. create the rule (set TARGET_ID and ETH_VARIABLE_ID in .env first)
 ```
 
